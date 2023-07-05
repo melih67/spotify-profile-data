@@ -5,9 +5,10 @@ const code = params.get("code");
 if (!code) {
     redirectToAuthCodeFlow(clientId);
 } else {
-    const accessToken = await getAccessToken(clientId, code);
-    const profile = await fetchProfile(accessToken);
-    populateUI(profile);
+    getAccessToken(clientId, code)
+        .then(accessToken => fetchProfile(accessToken))
+        .then(profile => populateUI(profile.profile, profile.playlists))
+        .catch(error => console.error(error)); // Log any error
 }
 
 export async function redirectToAuthCodeFlow(clientId) {
@@ -48,15 +49,32 @@ export async function getAccessToken(clientId, code) {
 }
 
 async function fetchProfile(token) {
-    const result = await fetch("https://api.spotify.com/v1/me", {
+
+    const profileResult = await fetch("https://api.spotify.com/v1/me", {
         method: "GET",
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` },
     });
 
-    return await result.json();
+    if (!profileResult.ok) {
+        throw new Error('Problem fetching profile');
+    }
+
+    const playlistsResult = await fetch("https://api.spotify.com/v1/me/playlists", {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!playlistsResult.ok) {
+        throw new Error('Problem fetching playlists');
+    }
+
+    const playlists = await playlistsResult.json();
+    const profile = await profileResult.json();
+
+    return { profile, playlists };
 }
 
-function populateUI(profile) {
+function populateUI(profile, playlists) {
     document.getElementById("displayName").innerText = profile.display_name;
     if (profile.images[0]) {
         const profileImage = new Image(200, 200);
@@ -70,7 +88,23 @@ function populateUI(profile) {
     document.getElementById("uri").setAttribute("href", profile.external_urls.spotify);
     document.getElementById("url").innerText = profile.href;
     document.getElementById("url").setAttribute("href", profile.href);
+
+    const playlistList = document.getElementById("playlistList");
+    playlistList.innerHTML = ''; // Clear the list before adding items
+
+    if (playlists && playlists.items) {
+        playlists.items.forEach((playlist) => {
+            const playlistItem = document.createElement("li");
+            playlistItem.innerText = playlist.name;
+            playlistList.appendChild(playlistItem);
+        });
+    } else {
+        const noPlaylistsMessage = document.createElement("p");
+        noPlaylistsMessage.innerText = "No playlists found.";
+        playlistList.appendChild(noPlaylistsMessage);
+    }
 }
+
 
 function generateCodeVerifier(length) {
     let text = '';
